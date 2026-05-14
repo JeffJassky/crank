@@ -1,0 +1,11 @@
+rules_version = '2';
+
+// Private friend app. No auth. Anyone with the URL can read & write rides.
+// Acceptable risk per project owner — small trusted group.
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /rides/{rideId} {
+      allow read, write: if true;
+    }
+  }
+}
