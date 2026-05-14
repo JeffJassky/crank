@@ -55,7 +55,6 @@ const App = () => {
   if (!user) {
     return (
       <div className="phone">
-        <StatusBar />
         <UsernameGate onEnter={(u) => { setUser(u); setView({ name: 'browse' }); }} />
       </div>
     );
@@ -115,7 +114,6 @@ const App = () => {
 
   return (
     <div className="phone">
-      <StatusBar />
       {screen}
       {!tabsHidden && (
         <div className="tabbar">

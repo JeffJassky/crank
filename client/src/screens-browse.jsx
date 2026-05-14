@@ -10,7 +10,7 @@ const UsernameGate = ({ onEnter }) => {
     e.preventDefault();
     const v = name.trim();
     if (v.length < 2) { setError('At least 2 characters.'); return; }
-    if (!/^[a-zA-Z0-9_\- ]+$/.test(v)) { setError('Letters, numbers, dashes & underscores only.'); return; }
+    if (!/^[a-zA-Z0-9_\-() ]+$/.test(v)) { setError('Letters, numbers, spaces, parens, dashes & underscores only.'); return; }
     const u = window.Store.setUser(v);
     onEnter(u);
   };
