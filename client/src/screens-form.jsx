@@ -8,8 +8,8 @@ const blankRide = (user) => {
     id: 'r' + Math.random().toString(36).slice(2, 8),
     title: '',
     description: '',
-    earliestDate: window.Store.addDays(today, 3),
-    latestDate:   window.Store.addDays(today, 10),
+    earliestDate: today,
+    latestDate:   window.Store.addDays(today, 30),
     windowStart: null,
     windowEnd:   null,
     durationMin: null,
@@ -32,7 +32,7 @@ const newRouteId = () => 'rt' + Math.random().toString(36).slice(2, 7);
 
 const hourOptions = (() => {
   const out = [];
-  for (let h = 5; h <= 22; h++) for (let m of [0, 30]) {
+  for (let h = 4; h <= 23; h++) for (let m of [0, 30]) {
     const v = `${String(h).padStart(2,'0')}:${String(m).padStart(2,'0')}`;
     out.push({ v, label: fmtTime(v) });
   }
@@ -40,10 +40,14 @@ const hourOptions = (() => {
 })();
 
 const durationOptions = [
-  { v: 30, label: '30 min' }, { v: 60, label: '1 hour' },
-  { v: 90, label: '1h 30m' }, { v: 120, label: '2 hours' },
+  { v: 30, label: '30 min' },  { v: 60, label: '1 hour' },
+  { v: 90, label: '1h 30m' },  { v: 120, label: '2 hours' },
   { v: 150, label: '2h 30m' }, { v: 180, label: '3 hours' },
-  { v: 240, label: '4 hours' }, { v: 300, label: '5 hours' }, { v: 360, label: '6 hours' },
+  { v: 240, label: '4 hours' }, { v: 300, label: '5 hours' },
+  { v: 360, label: '6 hours' }, { v: 420, label: '7 hours' },
+  { v: 480, label: '8 hours' }, { v: 540, label: '9 hours' },
+  { v: 600, label: '10 hours' }, { v: 660, label: '11 hours' },
+  { v: 720, label: '12 hours' },
 ];
 
 // Migrate an old-schema ride (date, endDate, mode) onto the new fields.
