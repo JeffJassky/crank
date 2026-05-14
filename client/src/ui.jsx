@@ -26,6 +26,7 @@ const Icon = ({ name, size = 16, stroke = 1.6, ...rest }) => {
     spark: <path d="M12 3v5M12 16v5M3 12h5M16 12h5M6 6l3 3M15 15l3 3M18 6l-3 3M9 15l-3 3" />,
     cal: <><rect x="4" y="6" width="16" height="14" rx="2" /><line x1="4" y1="10" x2="20" y2="10" /><line x1="9" y1="3" x2="9" y2="7" /><line x1="15" y1="3" x2="15" y2="7" /></>,
     more: <><circle cx="6" cy="12" r="1.2" fill="currentColor" /><circle cx="12" cy="12" r="1.2" fill="currentColor" /><circle cx="18" cy="12" r="1.2" fill="currentColor" /></>,
+    share: <><path d="M4 12v7a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1v-7" /><polyline points="8 7 12 3 16 7" /><line x1="12" y1="3" x2="12" y2="15" /></>,
     settings: <><circle cx="12" cy="12" r="3" /><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z" /></>,
   };
   return (
@@ -337,6 +338,19 @@ const summarizeWhen = (ride) => {
   return `${shortDate(e)} · all day`;
 };
 
+// Build a "Open in Maps" link from either an address string or a paste-in URL.
+const mapsLinkFor = (q) => {
+  if (!q) return null;
+  if (/^https?:\/\//i.test(q)) return q;
+  return `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(q)}`;
+};
+// Build an embeddable Maps URL. Returns null for share URLs (can't embed without key).
+const mapsEmbedFor = (q, zoom = 14) => {
+  if (!q) return null;
+  if (/^https?:\/\//i.test(q)) return null;
+  return `https://www.google.com/maps?q=${encodeURIComponent(q)}&z=${zoom}&output=embed`;
+};
+
 const leadingRoute = (ride) => {
   if (!ride.routes || ride.routes.length === 0) return null;
   const counts = routeVoteCounts(ride);
@@ -356,5 +370,5 @@ Object.assign(window, {
   groupRides, daysBetween, startOfDay,
   fmtTime, fmtDuration, slotsBetween,
   rsvpSummary, recommendStart, slotHeat, summarizeWhen,
-  routeVoteCounts, leadingRoute,
+  routeVoteCounts, leadingRoute, mapsLinkFor, mapsEmbedFor,
 });

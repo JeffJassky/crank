@@ -377,6 +377,7 @@ const DayHeatmap = ({ ride }) => {
 const RouteOptions = ({ ride, currentUser, isProposer }) => {
   const routes = ride.routes || [];
   if (routes.length === 0) return null;
+  const singleRoute = routes.length === 1;
   const counts = routeVoteCounts(ride);
   const totalVotes = Object.values(counts).reduce((a, b) => a + b, 0);
   const maxVotes = Math.max(1, ...Object.values(counts));
@@ -387,10 +388,10 @@ const RouteOptions = ({ ride, currentUser, isProposer }) => {
     <div className="route-options">
       {routes.map(rt => {
         const n = counts[rt.id] || 0;
-        const isLead = totalVotes > 0 && leader && rt.id === leader.id;
+        const isLead = !singleRoute && totalVotes > 0 && leader && rt.id === leader.id;
         const youVoted = myVote === rt.id;
         return (
-          <div key={rt.id} className={`route-opt${isLead ? ' leading' : ''}${youVoted ? ' you-voted' : ''}`}>
+          <div key={rt.id} className={`route-opt${isLead ? ' leading' : ''}${!singleRoute && youVoted ? ' you-voted' : ''}`}>
             <div className="route-opt-head">
               <h4 className="route-opt-name">{rt.name}</h4>
               {isLead && <span className="route-leading-badge">leading</span>}
@@ -399,7 +400,7 @@ const RouteOptions = ({ ride, currentUser, isProposer }) => {
               <div className="route-opt-meta">
                 {rt.distanceMi && <span>{rt.distanceMi} mi</span>}
                 {rt.mapQuery && (
-                  <a href={`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(rt.mapQuery)}`}
+                  <a href={mapsLinkFor(rt.mapQuery)}
                     target="_blank" rel="noopener noreferrer">
                     <Icon name="map" size={11} /> Open in Maps
                   </a>
@@ -407,21 +408,23 @@ const RouteOptions = ({ ride, currentUser, isProposer }) => {
               </div>
             )}
             {rt.note && <p className="route-opt-note">{rt.note}</p>}
-            <div className="route-opt-foot">
-              <div style={{ flex: 1, display: 'flex', alignItems: 'center', gap: 10 }}>
-                <div className="route-bar">
-                  <div className="route-bar-fill" style={{ width: totalVotes ? `${(n / maxVotes) * 100}%` : '0%' }} />
+            {!singleRoute && (
+              <div className="route-opt-foot">
+                <div style={{ flex: 1, display: 'flex', alignItems: 'center', gap: 10 }}>
+                  <div className="route-bar">
+                    <div className="route-bar-fill" style={{ width: totalVotes ? `${(n / maxVotes) * 100}%` : '0%' }} />
+                  </div>
+                  <span style={{ fontSize: 12, color: 'var(--ink-2)', fontVariantNumeric: 'tabular-nums', minWidth: 56, textAlign: 'right' }}>
+                    {n} {n === 1 ? 'vote' : 'votes'}
+                  </span>
                 </div>
-                <span style={{ fontSize: 12, color: 'var(--ink-2)', fontVariantNumeric: 'tabular-nums', minWidth: 56, textAlign: 'right' }}>
-                  {n} {n === 1 ? 'vote' : 'votes'}
-                </span>
+                <button
+                  className={'route-vote-btn' + (youVoted ? ' voted' : '')}
+                  onClick={() => window.Store.setRouteVote(ride.id, currentUser, rt.id)}>
+                  {youVoted ? <><Icon name="check" size={12} stroke={2.4} /> Voted</> : 'Vote'}
+                </button>
               </div>
-              <button
-                className={'route-vote-btn' + (youVoted ? ' voted' : '')}
-                onClick={() => window.Store.setRouteVote(ride.id, currentUser, rt.id)}>
-                {youVoted ? <><Icon name="check" size={12} stroke={2.4} /> Voted</> : 'Vote'}
-              </button>
-            </div>
+            )}
           </div>
         );
       })}
@@ -430,7 +433,7 @@ const RouteOptions = ({ ride, currentUser, isProposer }) => {
 };
 
 /* ---------- Detail screen ---------- */
-const DetailScreen = ({ ride, currentUser, onBack, onEdit, onLockIn, onUnlock, onDelete, toast }) => {
+const DetailScreen = ({ ride, currentUser, onBack, onEdit, onLockIn, onUnlock, toast }) => {
   const isProposer = ride.proposedBy === currentUser;
   const my = ride.rsvps?.[currentUser];
   const tour = isTour(ride);
@@ -440,7 +443,6 @@ const DetailScreen = ({ ride, currentUser, onBack, onEdit, onLockIn, onUnlock, o
   const latest   = latestOf(ride);
 
   const [pickerSlots, setPickerSlots] = uS2(my?.slots || []);
-  const [confirmDelete, setConfirmDelete] = uS2(false);
 
   uE2(() => { setPickerSlots(my?.slots || []); }, [ride.id, my?.state]);
 
@@ -459,8 +461,9 @@ const DetailScreen = ({ ride, currentUser, onBack, onEdit, onLockIn, onUnlock, o
   const recommended = uM2(() => recommendStart(ride), [ride]);  // { date, time } | null
   const { going, maybe, cant } = rsvpSummary(ride);
   const lead = leadingRoute(ride);
-  const mapQ = (lead?.mapQuery) || ride.mapQuery;
-  const mapSrc = mapQ ? `https://www.google.com/maps?q=${encodeURIComponent(mapQ)}&output=embed` : null;
+  const mapQ = ride.startAddress || ride.mapQuery;
+  const mapSrc = mapsEmbedFor(mapQ);
+  const mapHref = mapsLinkFor(mapQ);
 
   // Picker dispatch
   const open = ride.status === 'open' && my?.state && my.state !== 'cant';
@@ -522,6 +525,16 @@ const DetailScreen = ({ ride, currentUser, onBack, onEdit, onLockIn, onUnlock, o
       <div className="app-header has-back">
         <button className="back-btn" onClick={onBack}><Icon name="back" size={20} /> Rides</button>
         <div style={{ display: 'flex', gap: 8 }}>
+          <button className="icon-btn" onClick={async () => {
+            const url = window.location.href;
+            if (navigator.share) {
+              try { await navigator.share({ title: ride.title, url }); } catch (e) {}
+            } else if (navigator.clipboard) {
+              try { await navigator.clipboard.writeText(url); toast('Link copied'); } catch (e) {}
+            }
+          }} title="Share">
+            <Icon name="share" size={16} />
+          </button>
           {isProposer && (
             <button className="icon-btn" onClick={onEdit} title="Edit">
               <Icon name="edit" size={16} />
@@ -584,15 +597,9 @@ const DetailScreen = ({ ride, currentUser, onBack, onEdit, onLockIn, onUnlock, o
           </div>
         ) : null}
 
-        {mapSrc && (
-          <div className="map-frame">
-            <iframe src={mapSrc} loading="lazy" referrerPolicy="no-referrer-when-downgrade" title="Start location" />
-          </div>
-        )}
-
         {ride.routes && ride.routes.length > 0 && (
           <div className="section-block">
-            <h3>Route options · tap to vote</h3>
+            <h3>{ride.routes.length === 1 ? 'Route' : 'Route options · tap to vote'}</h3>
             <RouteOptions ride={ride} currentUser={currentUser} isProposer={isProposer} />
           </div>
         )}
@@ -692,32 +699,29 @@ const DetailScreen = ({ ride, currentUser, onBack, onEdit, onLockIn, onUnlock, o
           </div>
         </div>
 
+        {mapSrc ? (
+          <div className="map-frame" style={{ marginTop: 22 }}>
+            <iframe src={mapSrc} loading="lazy" referrerPolicy="no-referrer-when-downgrade" title="Start location" />
+          </div>
+        ) : mapHref ? (
+          <a href={mapHref} target="_blank" rel="noopener noreferrer" className="map-frame map-link" style={{ marginTop: 22 }}>
+            <Icon name="map" size={20} />
+            <span>Open meet point in Google Maps</span>
+            <Icon name="chev" size={16} />
+          </a>
+        ) : null}
+
         <div className="section-block">
           <h3>Details</h3>
           <div className="kv-list">
+            {ride.startAddress && <div className="kv"><span className="k">Meet address</span><span className="v" style={{ textAlign: 'right' }}>{ride.startAddress}</span></div>}
             <div className="kv"><span className="k">When</span>
               <span className="v" style={{ textAlign: 'right' }}>{summarizeWhen(ride)}</span></div>
             {(ride.distanceMi || lead?.distanceMi) && <div className="kv"><span className="k">Distance</span><span className="v">{ride.distanceMi || lead.distanceMi} mi · est.</span></div>}
             {!tour && ride.durationMin && <div className="kv"><span className="k">Duration</span><span className="v">{fmtDuration(ride.durationMin)}</span></div>}
-            {ride.startAddress && <div className="kv"><span className="k">Meet address</span><span className="v" style={{ textAlign: 'right' }}>{ride.startAddress}</span></div>}
             <div className="kv"><span className="k">Proposed</span><span className="v">{ride.proposedBy}</span></div>
           </div>
         </div>
-
-        {isProposer && (
-          <div className="section-block" style={{ paddingBottom: 24 }}>
-            {!confirmDelete ? (
-              <button className="btn btn-ghost btn-block" onClick={() => setConfirmDelete(true)} style={{ color: 'var(--danger)', borderColor: 'var(--hair)' }}>
-                Cancel this crank
-              </button>
-            ) : (
-              <div style={{ display: 'flex', gap: 8 }}>
-                <button className="btn btn-ghost" style={{ flex: 1 }} onClick={() => setConfirmDelete(false)}>Keep</button>
-                <button className="btn" style={{ flex: 1, background: 'var(--danger)', color: 'var(--bg)' }} onClick={() => onDelete()}>Yes, kill it</button>
-              </div>
-            )}
-          </div>
-        )}
 
         <div style={{ height: 24 }} />
       </div>

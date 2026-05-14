@@ -107,9 +107,13 @@ const RideCard = ({ ride, onClick, currentUser }) => {
         <div className="route-chip">
           <Icon name="map" size={12} />
           <span className="route-chip-name">
-            {ride.routes.length} route{ride.routes.length === 1 ? '' : 's'}
-            {lead && totalVotes > 0 && <> · leading: <strong>{lead.name}</strong></>}
-            {totalVotes === 0 && <> · vote open</>}
+            {ride.routes.length === 1
+              ? <strong>{ride.routes[0].name}</strong>
+              : <>
+                  {ride.routes.length} routes
+                  {lead && totalVotes > 0 ? <> · leading: <strong>{lead.name}</strong></> : <> · vote open</>}
+                </>
+            }
           </span>
         </div>
       )}

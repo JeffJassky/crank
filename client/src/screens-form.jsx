@@ -63,8 +63,9 @@ const normalizeForEdit = (r) => ({
   lockedStart:  r.lockedStart  || null,
 });
 
-const RideForm = ({ initial, isEdit, currentUser, onCancel, onSave }) => {
+const RideForm = ({ initial, isEdit, currentUser, onCancel, onSave, onDelete }) => {
   const [draft, setDraft] = uS3(() => initial ? normalizeForEdit(initial) : blankRide(currentUser));
+  const [confirmDelete, setConfirmDelete] = uS3(false);
   const set = (patch) => setDraft(d => ({ ...d, ...patch }));
 
   const windowed = !!draft.windowStart;
@@ -120,7 +121,9 @@ const RideForm = ({ initial, isEdit, currentUser, onCancel, onSave }) => {
     const next = { ...draft };
     // strip legacy fields if present
     delete next.date; delete next.endDate; delete next.mode;
-    if (next.startAddress && !next.mapQuery) next.mapQuery = next.startAddress;
+    // Meet address is the single source of truth for the embed location.
+    if (next.startAddress) next.mapQuery = next.startAddress;
+    else delete next.mapQuery;
     if (next.distanceMi === '' || next.distanceMi === null) delete next.distanceMi;
     else next.distanceMi = Number(next.distanceMi);
     next.routes = (next.routes || []).filter(r => r.name && r.name.trim().length > 0).map(r => {
@@ -247,7 +250,7 @@ const RideForm = ({ initial, isEdit, currentUser, onCancel, onSave }) => {
           <input className="input" value={draft.startAddress}
             placeholder="Coffee shop, park, intersection…"
             onChange={e => set({ startAddress: e.target.value })} />
-          <div className="helper">We'll embed a map of this spot — unless a route below has its own location.</div>
+          <div className="helper">We'll embed a map of this spot. Routes can have their own map links separately.</div>
         </div>
 
         <div className="form-row" style={{ marginTop: 22 }}>
@@ -279,6 +282,28 @@ const RideForm = ({ initial, isEdit, currentUser, onCancel, onSave }) => {
             <div className="helper" style={{ marginTop: 8 }}>Each rider gets one vote. The route with the most votes shows as <em>leading</em>.</div>
           )}
         </div>
+
+        {isEdit && onDelete && (
+          <div className="form-row" style={{ marginTop: 32 }}>
+            {!confirmDelete ? (
+              <button type="button" className="btn btn-ghost btn-block"
+                onClick={() => setConfirmDelete(true)}
+                style={{ color: 'var(--danger)', borderColor: 'var(--hair)' }}>
+                Cancel this crank
+              </button>
+            ) : (
+              <>
+                <div className="helper" style={{ marginBottom: 8, color: 'var(--danger)' }}>
+                  This deletes the ride and all RSVPs. Not undoable.
+                </div>
+                <div style={{ display: 'flex', gap: 8 }}>
+                  <button type="button" className="btn btn-ghost" style={{ flex: 1 }} onClick={() => setConfirmDelete(false)}>Keep it</button>
+                  <button type="button" className="btn" style={{ flex: 1, background: 'var(--danger)', color: 'var(--bg)' }} onClick={onDelete}>Yes, kill it</button>
+                </div>
+              </>
+            )}
+          </div>
+        )}
 
         <div style={{ height: 100 }} />
       </div>

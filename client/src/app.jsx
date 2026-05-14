@@ -1,6 +1,25 @@
-// Main app: router + identity gate.
+// Main app: hash-routed shell + identity gate.
 
 const { useState: uS4, useEffect: uE4, useMemo: uM4 } = React;
+
+// Hash routes: #/, #/propose, #/me, #/ride/<id>, #/ride/<id>/edit
+const parseHash = () => {
+  const h = window.location.hash.replace(/^#\/?/, '');
+  if (!h) return { name: 'browse' };
+  if (h === 'propose') return { name: 'propose' };
+  if (h === 'me') return { name: 'profile' };
+  const m = h.match(/^ride\/([^/]+)(?:\/(edit))?$/);
+  if (m) return { name: m[2] === 'edit' ? 'edit' : 'detail', rideId: m[1] };
+  return { name: 'browse' };
+};
+const viewToHash = (v) => {
+  if (v.name === 'browse')   return '';
+  if (v.name === 'propose')  return '#/propose';
+  if (v.name === 'profile')  return '#/me';
+  if (v.name === 'detail')   return `#/ride/${v.rideId}`;
+  if (v.name === 'edit')     return `#/ride/${v.rideId}/edit`;
+  return '';
+};
 
 /* ---------- Profile (you) sheet — accessible from chip in header ---------- */
 const ProfileSheet = ({ user, onSwitchUser, onClose, toast }) => {
@@ -38,9 +57,26 @@ const ProfileSheet = ({ user, onSwitchUser, onClose, toast }) => {
 /* ---------- App shell ---------- */
 const App = () => {
   const [user, setUser] = uS4(() => window.Store.getUser());
-  const [view, setView] = uS4({ name: 'browse' }); // browse | detail | propose | edit | profile
+  const [view, setViewState] = uS4(parseHash);
   const [rides, setRides] = uS4(() => window.Store.listRides());
   const [toast, setToast] = uS4(null);
+
+  // Keep state and location.hash in sync. Browser back/forward fires hashchange.
+  uE4(() => {
+    const onHash = () => setViewState(parseHash());
+    window.addEventListener('hashchange', onHash);
+    return () => window.removeEventListener('hashchange', onHash);
+  }, []);
+
+  const setView = (v) => {
+    const next = viewToHash(v);
+    if (window.location.hash !== next && !(next === '' && !window.location.hash)) {
+      // Use replaceState-style write to avoid stacking duplicate history entries
+      // when navigating from initial empty hash; pushState for genuine navigation.
+      window.location.hash = next;
+    }
+    setViewState(v);
+  };
 
   uE4(() => window.Store.subscribe(() => setRides(window.Store.listRides())), []);
 
@@ -55,7 +91,8 @@ const App = () => {
   if (!user) {
     return (
       <div className="phone">
-        <UsernameGate onEnter={(u) => { setUser(u); setView({ name: 'browse' }); }} />
+        {/* Preserve the requested view (from hash) once they identify. */}
+        <UsernameGate onEnter={(u) => { setUser(u); }} />
       </div>
     );
   }
@@ -86,7 +123,6 @@ const App = () => {
         showToast(label);
       }}
       onUnlock={() => { window.Store.setRideStatus(activeRide.id, 'open', null); showToast('Reopened for availability'); }}
-      onDelete={() => { window.Store.deleteRide(activeRide.id); showToast('Ride cancelled'); goBrowse(); }}
       toast={showToast}
     />;
   } else if (view.name === 'propose') {
@@ -102,6 +138,7 @@ const App = () => {
       currentUser={user}
       onCancel={() => setView({ name: 'detail', rideId: activeRide.id })}
       onSave={(r) => { window.Store.upsertRide(r); showToast('Saved'); setView({ name: 'detail', rideId: r.id }); }}
+      onDelete={() => { window.Store.deleteRide(activeRide.id); showToast('Ride cancelled'); goBrowse(); }}
     />;
   } else if (view.name === 'profile') {
     screen = <ProfileSheet
