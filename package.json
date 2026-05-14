@@ -1,0 +1,17 @@
+{
+  "name": "crank",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Bikey Boys ride board — propose, vote, RSVP.",
+  "scripts": {
+    "dev": "CLOUDFLARE_API_TOKEN= wrangler pages dev client --port 4173 --compatibility-date=2026-05-14",
+    "deploy": "CLOUDFLARE_API_TOKEN= wrangler pages deploy client --project-name=crank --branch=main --commit-dirty=true",
+    "tail": "CLOUDFLARE_API_TOKEN= wrangler pages deployment tail --project-name=crank",
+    "firestore:rules": "firebase deploy --only firestore:rules --project crank-jj",
+    "firestore:rules:diff": "firebase deploy --only firestore:rules --project crank-jj --dry-run"
+  },
+  "devDependencies": {
+    "firebase-tools": "^13.29.1",
+    "wrangler": "^4.0.0"
+  }
+}
