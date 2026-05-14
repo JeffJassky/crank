@@ -2,6 +2,7 @@
 node_modules/
 .firebase/
 .firebaserc
+.wrangler/
 firebase-debug.log
 *.log
 .env

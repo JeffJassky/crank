@@ -2,23 +2,29 @@
 
 const { useState: uS4, useEffect: uE4, useMemo: uM4 } = React;
 
-// Hash routes: #/, #/propose, #/me, #/ride/<id>, #/ride/<id>/edit
-const parseHash = () => {
-  const h = window.location.hash.replace(/^#\/?/, '');
-  if (!h) return { name: 'browse' };
-  if (h === 'propose') return { name: 'propose' };
-  if (h === 'me') return { name: 'profile' };
-  const m = h.match(/^ride\/([^/]+)(?:\/(edit))?$/);
+// Path routes: /, /propose, /me, /ride/<id>, /ride/<id>/edit
+// Migrate any stale #/ride/<id> URLs to real paths on first load.
+if (typeof window !== 'undefined' && window.location.hash.startsWith('#/')) {
+  const newPath = window.location.hash.replace(/^#/, '');
+  window.history.replaceState(null, '', newPath);
+}
+
+const parsePath = () => {
+  const p = window.location.pathname;
+  if (p === '/' || p === '') return { name: 'browse' };
+  if (p === '/propose') return { name: 'propose' };
+  if (p === '/me') return { name: 'profile' };
+  const m = p.match(/^\/ride\/([^/]+)(?:\/(edit))?\/?$/);
   if (m) return { name: m[2] === 'edit' ? 'edit' : 'detail', rideId: m[1] };
   return { name: 'browse' };
 };
-const viewToHash = (v) => {
-  if (v.name === 'browse')   return '';
-  if (v.name === 'propose')  return '#/propose';
-  if (v.name === 'profile')  return '#/me';
-  if (v.name === 'detail')   return `#/ride/${v.rideId}`;
-  if (v.name === 'edit')     return `#/ride/${v.rideId}/edit`;
-  return '';
+const viewToPath = (v) => {
+  if (v.name === 'browse')   return '/';
+  if (v.name === 'propose')  return '/propose';
+  if (v.name === 'profile')  return '/me';
+  if (v.name === 'detail')   return `/ride/${v.rideId}`;
+  if (v.name === 'edit')     return `/ride/${v.rideId}/edit`;
+  return '/';
 };
 
 /* ---------- Profile (you) sheet — accessible from chip in header ---------- */
@@ -57,23 +63,21 @@ const ProfileSheet = ({ user, onSwitchUser, onClose, toast }) => {
 /* ---------- App shell ---------- */
 const App = () => {
   const [user, setUser] = uS4(() => window.Store.getUser());
-  const [view, setViewState] = uS4(parseHash);
+  const [view, setViewState] = uS4(parsePath);
   const [rides, setRides] = uS4(() => window.Store.listRides());
   const [toast, setToast] = uS4(null);
 
-  // Keep state and location.hash in sync. Browser back/forward fires hashchange.
+  // Keep state and location.pathname in sync. popstate fires on back/forward.
   uE4(() => {
-    const onHash = () => setViewState(parseHash());
-    window.addEventListener('hashchange', onHash);
-    return () => window.removeEventListener('hashchange', onHash);
+    const onPop = () => setViewState(parsePath());
+    window.addEventListener('popstate', onPop);
+    return () => window.removeEventListener('popstate', onPop);
   }, []);
 
   const setView = (v) => {
-    const next = viewToHash(v);
-    if (window.location.hash !== next && !(next === '' && !window.location.hash)) {
-      // Use replaceState-style write to avoid stacking duplicate history entries
-      // when navigating from initial empty hash; pushState for genuine navigation.
-      window.location.hash = next;
+    const next = viewToPath(v);
+    if (window.location.pathname !== next) {
+      window.history.pushState(null, '', next);
     }
     setViewState(v);
   };
