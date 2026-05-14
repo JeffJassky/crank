@@ -55,39 +55,27 @@ const UsernameGate = ({ onEnter }) => {
 };
 
 /* ---------- Ride card ---------- */
-const StatusPill = ({ status, lockedStart, multi }) => {
-  if (status === 'locked') return (
+const StatusPill = ({ ride }) => {
+  const tour = isTour(ride);
+  const flex = isFlexDate(ride);
+  if (ride.status === 'locked') return (
     <span className="status-pill locked">
       <Icon name="lock" size={11} stroke={2.2} />
-      {multi ? 'Confirmed' : `Locked · ${fmtTime(lockedStart)}`}
+      {summarizeWhen(ride)}
     </span>
   );
-  if (status === 'past') return <span className="status-pill past">Past</span>;
-  return <span className="status-pill open"><span className="dot" />{multi ? 'Open · gathering RSVPs' : 'Open · find a time'}</span>;
+  if (ride.status === 'past') return <span className="status-pill past">Past</span>;
+  const sub = tour ? 'Open · gathering RSVPs' : flex ? 'Open · find a date' : hasWindow(ride) ? 'Open · find a time' : 'Open';
+  return <span className="status-pill open"><span className="dot" />{sub}</span>;
 };
 
 const RideCard = ({ ride, onClick, currentUser }) => {
   const { going, maybe } = rsvpSummary(ride);
   const total = going.length + maybe.length;
   const youGoing = ride.rsvps?.[currentUser]?.state;
-  const multi = isMultiDay(ride);
-
-  let timeBit = '';
-  if (multi) {
-    if (ride.status === 'locked' && ride.lockedStart) {
-      const s = new Date(ride.lockedStart + 'T12:00:00');
-      const e = new Date(s); e.setDate(e.getDate() + ride.tourDays - 1);
-      timeBit = `${ride.tourDays}d · ${dateRangeShort(ride.lockedStart, e.toISOString().slice(0,10))}`;
-    } else {
-      timeBit = `${ride.tourDays}d tour · ${dateRangeShort(ride.date, ride.endDate)} window`;
-    }
-  } else if (ride.status === 'locked') {
-    timeBit = `${fmtTime(ride.lockedStart)} · ${fmtDuration(ride.durationMin)}`;
-  } else if (ride.mode === 'allday') {
-    timeBit = 'All day';
-  } else {
-    timeBit = `${fmtTime(ride.windowStart)}–${fmtTime(ride.windowEnd)} · ${fmtDuration(ride.durationMin)}`;
-  }
+  const tour = isTour(ride);
+  const flex = isFlexDate(ride);
+  const timeBit = summarizeWhen(ride);
 
   const dispGoing = going.slice(0, 3);
   const lead = leadingRoute(ride);
@@ -104,12 +92,12 @@ const RideCard = ({ ride, onClick, currentUser }) => {
     >
       <div className="ride-card-top">
         <h3 className="ride-title">{ride.title}</h3>
-        <StatusPill status={ride.status} lockedStart={ride.lockedStart} multi={multi} />
+        <StatusPill ride={ride} />
       </div>
       <p className="ride-desc">{ride.description}</p>
       <div className="ride-meta">
         <span className="ride-meta-item">
-          <Icon name={multi ? 'cal' : 'clock'} size={13} />{timeBit}
+          <Icon name={(tour || flex) ? 'cal' : 'clock'} size={13} />{timeBit}
         </span>
         {distanceDisplay && <span className="ride-meta-item"><Icon name="ruler" size={13} />{distanceDisplay} mi</span>}
         {ride.startAddress && <span className="ride-meta-item"><Icon name="pin" size={13} />{ride.startAddress.split(',')[0]}</span>}

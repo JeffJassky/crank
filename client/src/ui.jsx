@@ -97,9 +97,24 @@ const dateRangeShort = (start, end) => {
   return `${aStr}–${bStr}`;
 };
 
-// A ride is a tour iff it has a tourDays length > 1. date/endDate define the search WINDOW.
-const isTour = (r) => !!(r.tourDays && r.tourDays > 1);
+// ---------- ride field accessors (with back-compat for old `date`/`endDate`/`mode`) ----------
+const earliestOf = (r) => r.earliestDate || r.date || null;
+const latestOf   = (r) => r.latestDate  || r.endDate || r.date || null;
+const hasWindow  = (r) => !!r.windowStart;
+const isTour     = (r) => !!(r.tourDays && r.tourDays > 1);
 const isMultiDay = isTour;
+const dateSpan   = (r) => {
+  const a = earliestOf(r), b = latestOf(r);
+  if (!a || !b) return 0;
+  return Math.round((new Date(b+'T12:00:00') - new Date(a+'T12:00:00'))/86400000) + 1;
+};
+const isFlexDate = (r) => dateSpan(r) > 1;
+
+// Slot-encoding key used in rsvps[].slots:
+//   - allday rides:               "YYYY-MM-DD"
+//   - windowed, single-day range: "HH:MM"
+//   - windowed, multi-day range:  "YYYY-MM-DD HH:MM"
+const slotKey = (date, time, isFlex) => time == null ? date : (isFlex ? `${date} ${time}` : time);
 
 // All dates (YYYY-MM-DD) between start and end inclusive.
 const datesBetween = (start, end) => {
@@ -121,10 +136,15 @@ const groupRides = (rides) => {
   const today = startOfDay(new Date());
   const groups = { today: [], tomorrow: [], thisWeek: [], nextWeek: [], later: [], past: [] };
   rides.forEach(r => {
-    const d = new Date(r.date + 'T12:00:00');
+    // Group by the locked date if locked, otherwise by the earliest possible date.
+    const anchor = r.lockedDate || earliestOf(r);
+    if (!anchor) { groups.later.push(r); return; }
+    const d = new Date(anchor + 'T12:00:00');
     const diff = daysBetween(today, d);
-    if (diff < 0) groups.past.push(r);
-    else if (diff === 0) groups.today.push(r);
+    const latestAnchor = latestOf(r);
+    const latestDiff = latestAnchor ? daysBetween(today, new Date(latestAnchor + 'T12:00:00')) : diff;
+    if (latestDiff < 0) groups.past.push(r);
+    else if (diff <= 0 && latestDiff >= 0) groups.today.push(r);
     else if (diff === 1) groups.tomorrow.push(r);
     else if (diff <= 6) groups.thisWeek.push(r);
     else if (diff <= 13) groups.nextWeek.push(r);
@@ -175,62 +195,112 @@ const rsvpSummary = (ride) => {
   return { going, maybe, cant };
 };
 
-// Recommend the best start: for window rides, a HH:MM start time; for tours, a YYYY-MM-DD start date.
-// In both cases: choose the contiguous N-unit window that maximizes (going) + 0.5*(maybe) overlap.
+// Recommend best (date, time) for any ride. time is null for allday rides.
+// Picks the contiguous N-slot/N-day window maximizing (going) + 0.5*(maybe).
 const recommendStart = (ride) => {
-  if (isTour(ride)) {
-    const days = datesBetween(ride.date, ride.endDate);
+  const rs = ride.rsvps || {};
+  const earliest = earliestOf(ride), latest = latestOf(ride);
+  if (!earliest || !latest) return null;
+  const dates = datesBetween(earliest, latest);
+  const flex = isFlexDate(ride);
+  const tour = isTour(ride);
+  const window = hasWindow(ride);
+
+  // Tour: pick the best contiguous N-day block. Slots are dates.
+  if (tour) {
     const needed = ride.tourDays;
-    if (!needed || days.length < needed) return null;
-    const rs = ride.rsvps || {};
-    let best = { start: days[0], score: -1 };
-    for (let i = 0; i + needed <= days.length; i++) {
-      const window = days.slice(i, i + needed);
+    if (dates.length < needed) return null;
+    let best = { date: dates[0], score: -1 };
+    for (let i = 0; i + needed <= dates.length; i++) {
+      const win = dates.slice(i, i + needed);
       let score = 0;
       Object.values(rs).forEach(({ state, slots: us }) => {
         if (state === 'cant') return;
         const set = new Set(us || []);
-        const hits = window.filter(d => set.has(d)).length;
+        const hits = win.filter(d => set.has(d)).length;
         const ratio = hits / needed;
         if (ratio === 1) score += (state === 'going' ? 1 : 0.5);
-        else score += (state === 'going' ? ratio * 0.6 : ratio * 0.3);
+        else        score += (state === 'going' ? ratio * 0.6 : ratio * 0.3);
       });
-      if (score > best.score) best = { start: window[0], score };
+      if (score > best.score) best = { date: win[0], score };
     }
-    return best.start;
+    return { date: best.date, time: null };
   }
-  if (ride.mode !== 'window') return null;
-  const slots = slotsBetween(ride.windowStart, ride.windowEnd, 30);
-  const dur = ride.durationMin || 60;
-  const needed = Math.ceil(dur / 30);
-  if (slots.length < needed) return null;
-  const rs = ride.rsvps || {};
-  let best = { start: slots[0], score: -1 };
-  for (let i = 0; i + needed <= slots.length; i++) {
-    const window = slots.slice(i, i + needed);
-    let score = 0;
-    Object.values(rs).forEach(({ state, slots: us }) => {
-      if (state === 'cant') return;
-      const set = new Set(us || []);
-      const hits = window.filter(s => set.has(s)).length;
-      const ratio = hits / needed;
-      if (ratio === 1) score += (state === 'going' ? 1 : 0.5);
-      else score += (state === 'going' ? ratio * 0.6 : ratio * 0.3);
+
+  // Allday + single date: nothing to recommend, RSVP is the answer.
+  if (!window && !flex) return null;
+
+  // Allday + flex date: pick best single date. Slots are dates.
+  if (!window && flex) {
+    let best = { date: dates[0], score: -1 };
+    dates.forEach(d => {
+      let score = 0;
+      Object.values(rs).forEach(({ state, slots: us }) => {
+        if (state === 'cant') return;
+        if ((us || []).includes(d)) score += (state === 'going' ? 1 : 0.5);
+      });
+      if (score > best.score) best = { date: d, score };
     });
-    if (score > best.score) best = { start: window[0], score };
+    return { date: best.date, time: null };
   }
-  return best.start;
+
+  // Windowed cases: find best contiguous slot window of duration.
+  const slots = slotsBetween(ride.windowStart, ride.windowEnd, 30);
+  const needed = Math.ceil((ride.durationMin || 60) / 30);
+  if (slots.length < needed) return null;
+
+  // Windowed + single date: slots stored as "HH:MM".
+  if (!flex) {
+    const fixedDate = dates[0];
+    let best = { time: slots[0], score: -1 };
+    for (let i = 0; i + needed <= slots.length; i++) {
+      const win = slots.slice(i, i + needed);
+      let score = 0;
+      Object.values(rs).forEach(({ state, slots: us }) => {
+        if (state === 'cant') return;
+        // accept "HH:MM" or "DATE HH:MM" defensively
+        const set = new Set((us || []).map(x => x.includes(' ') ? x.split(' ')[1] : x));
+        const hits = win.filter(s => set.has(s)).length;
+        const ratio = hits / needed;
+        if (ratio === 1) score += (state === 'going' ? 1 : 0.5);
+        else        score += (state === 'going' ? ratio * 0.6 : ratio * 0.3);
+      });
+      if (score > best.score) best = { time: win[0], score };
+    }
+    return { date: fixedDate, time: best.time };
+  }
+
+  // Windowed + flex date: best (date, slot-window) combo. Slots are "DATE HH:MM".
+  let best = { date: dates[0], time: slots[0], score: -1 };
+  dates.forEach(d => {
+    for (let i = 0; i + needed <= slots.length; i++) {
+      const win = slots.slice(i, i + needed);
+      let score = 0;
+      Object.values(rs).forEach(({ state, slots: us }) => {
+        if (state === 'cant') return;
+        const set = new Set(us || []);
+        const hits = win.filter(s => set.has(`${d} ${s}`)).length;
+        const ratio = hits / needed;
+        if (ratio === 1) score += (state === 'going' ? 1 : 0.5);
+        else        score += (state === 'going' ? ratio * 0.6 : ratio * 0.3);
+      });
+      if (score > best.score) best = { date: d, time: win[0], score };
+    }
+  });
+  return { date: best.date, time: best.time };
 };
 
+// Per-slot availability score, only meaningful for single-day windowed rides.
 const slotHeat = (ride) => {
-  if (ride.mode !== 'window') return [];
+  if (!hasWindow(ride)) return [];
   const slots = slotsBetween(ride.windowStart, ride.windowEnd, 30);
   const rs = ride.rsvps || {};
   return slots.map(s => {
     let n = 0;
     Object.values(rs).forEach(({ state, slots: us }) => {
       if (state === 'cant') return;
-      if ((us || []).includes(s)) n += (state === 'going' ? 1 : 0.5);
+      const has = (us || []).some(x => (x.includes(' ') ? x.split(' ')[1] : x) === s);
+      if (has) n += (state === 'going' ? 1 : 0.5);
     });
     return { slot: s, score: n };
   });
@@ -244,6 +314,29 @@ const routeVoteCounts = (ride) => {
   });
   return counts;
 };
+// Compact display of a ride's "when". Used by cards + headers.
+const summarizeWhen = (ride) => {
+  const e = earliestOf(ride), l = latestOf(ride);
+  const flex = isFlexDate(ride);
+  const tour = isTour(ride);
+  const win  = hasWindow(ride);
+  if (ride.status === 'locked') {
+    if (tour && ride.lockedDate) {
+      const end = new Date(ride.lockedDate + 'T12:00:00'); end.setDate(end.getDate() + ride.tourDays - 1);
+      return `${shortDate(ride.lockedDate)}–${shortDate(end.toISOString().slice(0,10))}`;
+    }
+    if (ride.lockedDate && ride.lockedStart) return `${shortDate(ride.lockedDate)} · ${fmtTime(ride.lockedStart)}`;
+    if (ride.lockedDate)  return shortDate(ride.lockedDate);
+    if (ride.lockedStart) return fmtTime(ride.lockedStart);
+    return 'Confirmed';
+  }
+  if (tour) return `${ride.tourDays}d tour · ${dateRangeShort(e, l)} window`;
+  if (flex && win)  return `${dateRangeShort(e, l)} · ${fmtTime(ride.windowStart)}–${fmtTime(ride.windowEnd)}`;
+  if (flex)         return dateRangeShort(e, l);
+  if (win)          return `${shortDate(e)} · ${fmtTime(ride.windowStart)}–${fmtTime(ride.windowEnd)}`;
+  return `${shortDate(e)} · all day`;
+};
+
 const leadingRoute = (ride) => {
   if (!ride.routes || ride.routes.length === 0) return null;
   const counts = routeVoteCounts(ride);
@@ -257,9 +350,11 @@ const leadingRoute = (ride) => {
 // Export to window for sibling Babel scripts.
 Object.assign(window, {
   Icon, StatusBar, Avatar, colorFor,
-  dayName, longDate, shortDate, dateRangeLabel, dateRangeShort, isMultiDay, isTour, datesBetween,
+  dayName, longDate, shortDate, dateRangeLabel, dateRangeShort,
+  isMultiDay, isTour, hasWindow, isFlexDate, dateSpan, earliestOf, latestOf, slotKey,
+  datesBetween,
   groupRides, daysBetween, startOfDay,
   fmtTime, fmtDuration, slotsBetween,
-  rsvpSummary, recommendStart, slotHeat,
+  rsvpSummary, recommendStart, slotHeat, summarizeWhen,
   routeVoteCounts, leadingRoute,
 });

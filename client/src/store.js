@@ -79,8 +79,13 @@
       .catch(err => console.error('setRouteVote', err));
   }
 
-  function setRideStatus(rideId, status, lockedStart) {
-    const patch = { status, lockedStart: status === 'locked' ? lockedStart : null };
+  // locked = { date, time } | null
+  function setRideStatus(rideId, status, locked) {
+    const patch = {
+      status,
+      lockedDate:  status === 'locked' ? (locked?.date || null) : null,
+      lockedStart: status === 'locked' ? (locked?.time || null) : null,
+    };
     return ridesCol.doc(rideId).update(patch).catch(err => console.error('setRideStatus', err));
   }
 

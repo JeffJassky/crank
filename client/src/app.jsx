@@ -80,7 +80,11 @@ const App = () => {
       currentUser={user}
       onBack={goBrowse}
       onEdit={() => setView({ name: 'edit', rideId: activeRide.id })}
-      onLockIn={(start) => { window.Store.setRideStatus(activeRide.id, 'locked', start); showToast(`Locked in for ${fmtTime(start)}`); }}
+      onLockIn={(locked) => {
+        window.Store.setRideStatus(activeRide.id, 'locked', locked);
+        const label = locked?.time ? `Locked in for ${fmtTime(locked.time)}` : locked?.date ? `Locked in for ${shortDate(locked.date)}` : 'Confirmed';
+        showToast(label);
+      }}
       onUnlock={() => { window.Store.setRideStatus(activeRide.id, 'open', null); showToast('Reopened for availability'); }}
       onDelete={() => { window.Store.deleteRide(activeRide.id); showToast('Ride cancelled'); goBrowse(); }}
       toast={showToast}

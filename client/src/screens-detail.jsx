@@ -132,11 +132,12 @@ const Heatmap = ({ ride }) => {
   );
 };
 
-/* ---------- Day availability picker (for tours) ---------- */
+/* ---------- Day availability picker (allday + flex date, incl. tours) ---------- */
 const DayAvailabilityGrid = ({ windowStart, windowEnd, tourDays, value, onChange }) => {
   const days = uM2(() => datesBetween(windowStart, windowEnd), [windowStart, windowEnd]);
   const set = uM2(() => new Set(value || []), [value]);
   const paintMode = uR2(null);
+  const tourMode = (tourDays || 0) > 1;
 
   const startPaint = (day, e) => {
     e.preventDefault();
@@ -164,13 +165,13 @@ const DayAvailabilityGrid = ({ windowStart, windowEnd, tourDays, value, onChange
     else onChange([...days]);
   };
 
-  // contiguous run check vs tour length
+  // contiguous run check vs tour length (only matters in tour mode)
   let bestRun = 0, run = 0;
   days.forEach(d => {
     if (set.has(d)) { run++; bestRun = Math.max(bestRun, run); }
     else run = 0;
   });
-  const fits = bestRun >= tourDays;
+  const fits = tourMode ? (bestRun >= tourDays) : (set.size > 0);
 
   // group by month for friendlier display
   const groups = [];
@@ -185,7 +186,9 @@ const DayAvailabilityGrid = ({ windowStart, windowEnd, tourDays, value, onChange
   return (
     <>
       <div className="tw-window">
-        Tour is <strong>{tourDays} days</strong> · window <strong>{shortDate(windowStart)}–{shortDate(windowEnd)}</strong> · tap or drag days you can crank
+        {tourMode
+          ? <>Tour is <strong>{tourDays} days</strong> · window <strong>{shortDate(windowStart)}–{shortDate(windowEnd)}</strong> · tap or drag days you can crank</>
+          : <>Window <strong>{shortDate(windowStart)}–{shortDate(windowEnd)}</strong> · tap or drag every day you could do this</>}
       </div>
       <div
         onPointerMove={handlePointerMove}
@@ -226,7 +229,9 @@ const DayAvailabilityGrid = ({ windowStart, windowEnd, tourDays, value, onChange
             style={{ color: fits ? 'var(--moss)' : 'var(--warn)' }} />
           <span>
             {set.size} day{set.size === 1 ? '' : 's'} marked
-            {fits ? ` — you can do the full ${tourDays}-day tour` : ` — not a full ${tourDays}-day stretch yet`}
+            {tourMode
+              ? (fits ? ` — you can do the full ${tourDays}-day tour` : ` — not a full ${tourDays}-day stretch yet`)
+              : ''}
           </span>
         </div>
       )}
@@ -235,9 +240,90 @@ const DayAvailabilityGrid = ({ windowStart, windowEnd, tourDays, value, onChange
   );
 };
 
+/* ---------- Flexible-window picker (windowed + multi-date range) ---------- */
+const FlexibleWindowGrid = ({ earliestDate, latestDate, windowStart, windowEnd, durationMin, value, onChange }) => {
+  const dates = uM2(() => datesBetween(earliestDate, latestDate), [earliestDate, latestDate]);
+  const slotsPerDay = uM2(() => slotsBetween(windowStart, windowEnd, 30), [windowStart, windowEnd]);
+  const set = uM2(() => new Set(value || []), [value]);
+  const paintMode = uR2(null);
+
+  const startPaint = (k, e) => {
+    e.preventDefault();
+    const has = set.has(k);
+    paintMode.current = has ? 'off' : 'on';
+    const next = new Set(set);
+    if (has) next.delete(k); else next.add(k);
+    onChange([...next].sort());
+  };
+  const paintOver = (k) => {
+    if (!paintMode.current) return;
+    const next = new Set(set);
+    if (paintMode.current === 'on') next.add(k); else next.delete(k);
+    onChange([...next].sort());
+  };
+  const endPaint = () => { paintMode.current = null; };
+  const handlePointerMove = (e) => {
+    if (!paintMode.current) return;
+    const el = document.elementFromPoint(e.clientX, e.clientY);
+    const k = el?.closest?.('[data-slot]')?.dataset?.slot;
+    if (k) paintOver(k);
+  };
+
+  return (
+    <>
+      <div className="tw-window">
+        Window <strong>{shortDate(earliestDate)}–{shortDate(latestDate)}</strong> · daily{' '}
+        <strong>{fmtTime(windowStart)}–{fmtTime(windowEnd)}</strong> · ride is{' '}
+        <strong>{fmtDuration(durationMin)}</strong>
+      </div>
+      <div
+        onPointerMove={handlePointerMove}
+        onPointerUp={endPaint}
+        onPointerCancel={endPaint}
+        onPointerLeave={endPaint}
+        style={{ userSelect: 'none', WebkitUserSelect: 'none', touchAction: 'none' }}
+      >
+        {dates.map(d => {
+          const date = new Date(d + 'T12:00:00');
+          const label = date.toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' });
+          return (
+            <div key={d} style={{ marginBottom: 14 }}>
+              <div style={{ fontSize: 11, color: 'var(--ink-3)', marginBottom: 6, fontWeight: 600, letterSpacing: '0.08em', textTransform: 'uppercase' }}>
+                {label}
+              </div>
+              <div className="tw-grid">
+                {slotsPerDay.map(s => {
+                  const k = `${d} ${s}`;
+                  return (
+                    <div
+                      key={s}
+                      data-slot={k}
+                      className={'tw-slot' + (set.has(k) ? ' on' : '')}
+                      onPointerDown={(e) => startPaint(k, e)}
+                      onClick={(e) => e.preventDefault()}
+                    >
+                      {fmtTime(s)}
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          );
+        })}
+      </div>
+      {set.size > 0 && (
+        <div className="tw-summary">
+          <Icon name="check" size={14} stroke={2.2} style={{ color: 'var(--moss)' }} />
+          <span>{set.size} slot{set.size === 1 ? '' : 's'} marked across the window</span>
+        </div>
+      )}
+    </>
+  );
+};
+
 /* ---------- Day heatmap (organizer view for tours) ---------- */
 const DayHeatmap = ({ ride }) => {
-  const days = uM2(() => datesBetween(ride.date, ride.endDate), [ride.date, ride.endDate]);
+  const days = uM2(() => datesBetween(earliestOf(ride), latestOf(ride)), [ride]);
   if (!days.length) return null;
   const rs = ride.rsvps || {};
   const scores = days.map(d => {
@@ -347,7 +433,12 @@ const RouteOptions = ({ ride, currentUser, isProposer }) => {
 const DetailScreen = ({ ride, currentUser, onBack, onEdit, onLockIn, onUnlock, onDelete, toast }) => {
   const isProposer = ride.proposedBy === currentUser;
   const my = ride.rsvps?.[currentUser];
-  const multi = isMultiDay(ride);
+  const tour = isTour(ride);
+  const flex = isFlexDate(ride);
+  const win  = hasWindow(ride);
+  const earliest = earliestOf(ride);
+  const latest   = latestOf(ride);
+
   const [pickerSlots, setPickerSlots] = uS2(my?.slots || []);
   const [confirmDelete, setConfirmDelete] = uS2(false);
 
@@ -361,29 +452,70 @@ const DetailScreen = ({ ride, currentUser, onBack, onEdit, onLockIn, onUnlock, o
 
   const onSlotsChange = (next) => {
     setPickerSlots(next);
-    // auto-update server-side as user paints
     const state = my?.state || (next.length ? 'going' : null);
     if (state) window.Store.setRSVP(ride.id, currentUser, state, next);
   };
 
-  const recommended = uM2(() => recommendStart(ride), [ride]);
+  const recommended = uM2(() => recommendStart(ride), [ride]);  // { date, time } | null
   const { going, maybe, cant } = rsvpSummary(ride);
   const lead = leadingRoute(ride);
   const mapQ = (lead?.mapQuery) || ride.mapQuery;
   const mapSrc = mapQ ? `https://www.google.com/maps?q=${encodeURIComponent(mapQ)}&output=embed` : null;
-  const showTimePicker = ride.mode === 'window' && ride.status === 'open' && !multi;
-  const showDayPicker = multi && ride.status === 'open';
 
-  // formatted lock label depending on ride kind
-  const fmtLocked = () => {
-    if (!ride.lockedStart) return '';
-    if (multi) {
-      const start = new Date(ride.lockedStart + 'T12:00:00');
-      const end = new Date(start); end.setDate(end.getDate() + (ride.tourDays - 1));
-      return `${shortDate(ride.lockedStart)}–${shortDate(end.toISOString().slice(0,10))}`;
+  // Picker dispatch
+  const open = ride.status === 'open' && my?.state && my.state !== 'cant';
+  const showSlotPicker = open && win && !flex;
+  const showDayPicker  = open && !win && (flex || tour);
+  const showFlexPicker = open && win && flex;
+  const showOrgSlotHeat = isProposer && win && !flex && (going.length + maybe.length > 0);
+  const showOrgDayHeat  = isProposer && !win && (flex || tour) && (going.length + maybe.length > 0);
+
+  // Lock-in card content
+  let lockCard = null;
+  if (ride.status !== 'locked' && isProposer && going.length + maybe.length > 0) {
+    if (tour && recommended?.date) {
+      const end = new Date(recommended.date + 'T12:00:00'); end.setDate(end.getDate() + ride.tourDays - 1);
+      const endStr = end.toISOString().slice(0,10);
+      lockCard = {
+        title: `Lock the ${ride.tourDays}-day stretch`,
+        body: 'When most folks have marked days, lock the dates so people can plan.',
+        recommend: <><strong>{shortDate(recommended.date)}</strong> – <strong>{shortDate(endStr)}</strong> · best for the group</>,
+        cta: 'Lock these dates',
+        payload: recommended,
+      };
+    } else if (win && flex && recommended?.date && recommended?.time) {
+      lockCard = {
+        title: 'Lock the day and time',
+        body: 'When most folks have weighed in, lock a date + start time so people can plan.',
+        recommend: <><strong>{shortDate(recommended.date)}</strong> · <strong>{fmtTime(recommended.time)}</strong> · best for the group</>,
+        cta: `Lock ${shortDate(recommended.date)} at ${fmtTime(recommended.time)}`,
+        payload: recommended,
+      };
+    } else if (win && !flex && recommended?.time) {
+      lockCard = {
+        title: 'Pick the official time',
+        body: 'When most folks have weighed in, lock a start time so people can plan.',
+        recommend: <><strong>{fmtTime(recommended.time)}</strong> · best for the group</>,
+        cta: `Lock in ${fmtTime(recommended.time)}`,
+        payload: recommended,
+      };
+    } else if (!win && flex && !tour && recommended?.date) {
+      lockCard = {
+        title: 'Pick the day',
+        body: 'When most folks have marked days, lock the official day.',
+        recommend: <><strong>{shortDate(recommended.date)}</strong> · best for the group</>,
+        cta: `Lock ${shortDate(recommended.date)}`,
+        payload: recommended,
+      };
+    } else if (!win && !flex && going.length > 0) {
+      lockCard = {
+        title: 'Confirm this ride',
+        body: 'Once enough folks are in, mark it confirmed so it stops feeling tentative.',
+        cta: "Confirm it's a go",
+        payload: null,
+      };
     }
-    return fmtTime(ride.lockedStart);
-  };
+  }
 
   return (
     <div className="screen">
@@ -401,14 +533,9 @@ const DetailScreen = ({ ride, currentUser, onBack, onEdit, onLockIn, onUnlock, o
       <div className="screen-scroll">
         <div className="detail-hero">
           <div className="detail-eyebrow">
-            <StatusPill status={ride.status} lockedStart={ride.lockedStart} multi={multi} />
+            <StatusPill ride={ride} />
             <span className="detail-by">
-              {multi
-                ? (ride.status === 'locked'
-                  ? `${fmtLocked()} · by `
-                  : `${ride.tourDays}-day tour · window ${shortDate(ride.date)}–${shortDate(ride.endDate)} · by `)
-                : `${longDate(ride.date)} · by `}
-              <strong style={{ color: 'var(--ink)' }}>{ride.proposedBy}</strong>
+              {summarizeWhen(ride)} · by <strong style={{ color: 'var(--ink)' }}>{ride.proposedBy}</strong>
             </span>
           </div>
           <h1 className="detail-title">{ride.title}</h1>
@@ -418,15 +545,13 @@ const DetailScreen = ({ ride, currentUser, onBack, onEdit, onLockIn, onUnlock, o
         <div className="detail-stats">
           <div className="stat">
             <div className="stat-val">{ride.distanceMi || (lead?.distanceMi) || '—'}</div>
-            <div className="stat-label">{multi ? 'miles total' : 'miles'}</div>
+            <div className="stat-label">{tour ? 'miles total' : 'miles'}</div>
           </div>
           <div className="stat">
             <div className="stat-val">
-              {multi
-                ? `${ride.tourDays}d`
-                : ride.mode === 'allday' ? 'all day' : fmtDuration(ride.durationMin) || '—'}
+              {tour ? `${ride.tourDays}d` : !win ? 'all day' : fmtDuration(ride.durationMin) || '—'}
             </div>
-            <div className="stat-label">{multi ? 'tour length' : 'duration'}</div>
+            <div className="stat-label">{tour ? 'tour length' : 'duration'}</div>
           </div>
           <div className="stat">
             <div className="stat-val">{going.length}</div>
@@ -434,70 +559,37 @@ const DetailScreen = ({ ride, currentUser, onBack, onEdit, onLockIn, onUnlock, o
           </div>
         </div>
 
-        {/* lock-in banner */}
         {ride.status === 'locked' ? (
           <div className="locked-banner">
             <Icon name="lock" size={16} />
             <div>
-              <strong>{multi ? `Locked: ${fmtLocked()}` : `Locked in for ${fmtTime(ride.lockedStart)}.`}</strong>
-              {' '}{!multi && ride.mode === 'window' && `Ride is ~${fmtDuration(ride.durationMin)}.`}
+              <strong>Locked · {summarizeWhen(ride)}</strong>
+              {win && ride.durationMin ? ` · ~${fmtDuration(ride.durationMin)}` : ''}
               {isProposer && <> <button className="linkbtn" onClick={onUnlock}>Reopen</button></>}
             </div>
           </div>
-        ) : (isProposer && !multi && ride.mode === 'window' && going.length + maybe.length > 0 && recommended) ? (
+        ) : lockCard ? (
           <div className="lockin-card">
-            <h4>Pick the official time</h4>
-            <p>You proposed this — when most folks have weighed in, lock a start time so people can plan.</p>
-            <div className="recommend">
-              <span><strong>{fmtTime(recommended)}</strong> · best for the group</span>
-              <span className="badge">recommended</span>
-            </div>
-            <button className="btn btn-accent btn-block" onClick={() => onLockIn(recommended)}>
-              <Icon name="lock" size={14} stroke={2.2} /> Lock in {fmtTime(recommended)}
-            </button>
-          </div>
-        ) : (isProposer && multi && going.length + maybe.length > 0 && recommended) ? (
-          <div className="lockin-card">
-            <h4>Pick the {ride.tourDays}-day stretch</h4>
-            <p>You proposed this — when most folks have marked days, lock the official window so people can plan.</p>
-            <div className="recommend">
-              <span>
-                <strong>{shortDate(recommended)}</strong>
-                {' '}–{' '}
-                <strong>{(() => {
-                  const s = new Date(recommended + 'T12:00:00'); s.setDate(s.getDate() + ride.tourDays - 1);
-                  return shortDate(s.toISOString().slice(0,10));
-                })()}</strong>
-                {' '}· best for the group
-              </span>
-              <span className="badge">recommended</span>
-            </div>
-            <button className="btn btn-accent btn-block" onClick={() => onLockIn(recommended)}>
-              <Icon name="lock" size={14} stroke={2.2} /> Lock these dates
-            </button>
-          </div>
-        ) : (isProposer && !multi && ride.mode === 'allday' && going.length > 0) ? (
-          <div className="lockin-card">
-            <h4>Confirm this ride</h4>
-            <p>Once enough folks are in, mark it confirmed so it stops feeling tentative.</p>
-            <button className="btn btn-accent btn-block" onClick={() => onLockIn(null)}>
-              <Icon name="lock" size={14} stroke={2.2} /> Confirm it's a go
+            <h4>{lockCard.title}</h4>
+            <p>{lockCard.body}</p>
+            {lockCard.recommend && (
+              <div className="recommend">
+                <span>{lockCard.recommend}</span>
+                <span className="badge">recommended</span>
+              </div>
+            )}
+            <button className="btn btn-accent btn-block" onClick={() => onLockIn(lockCard.payload)}>
+              <Icon name="lock" size={14} stroke={2.2} /> {lockCard.cta}
             </button>
           </div>
         ) : null}
 
         {mapSrc && (
           <div className="map-frame">
-            <iframe
-              src={mapSrc}
-              loading="lazy"
-              referrerPolicy="no-referrer-when-downgrade"
-              title="Start location"
-            />
+            <iframe src={mapSrc} loading="lazy" referrerPolicy="no-referrer-when-downgrade" title="Start location" />
           </div>
         )}
 
-        {/* Routes + voting */}
         {ride.routes && ride.routes.length > 0 && (
           <div className="section-block">
             <h3>Route options · tap to vote</h3>
@@ -505,7 +597,6 @@ const DetailScreen = ({ ride, currentUser, onBack, onEdit, onLockIn, onUnlock, o
           </div>
         )}
 
-        {/* RSVP segmented */}
         <div className="section-block">
           <h3>Crankin'?</h3>
           <div className="rsvp-seg">
@@ -528,8 +619,7 @@ const DetailScreen = ({ ride, currentUser, onBack, onEdit, onLockIn, onUnlock, o
           </div>
         </div>
 
-        {/* time-slot picker (single-day window rides) */}
-        {showTimePicker && my?.state && my.state !== 'cant' && (
+        {showSlotPicker && (
           <div className="section-block">
             <h3>When can you crank?</h3>
             <AvailabilityGrid
@@ -541,35 +631,47 @@ const DetailScreen = ({ ride, currentUser, onBack, onEdit, onLockIn, onUnlock, o
           </div>
         )}
 
-        {/* day picker (tours) */}
-        {showDayPicker && my?.state && my.state !== 'cant' && (
+        {showDayPicker && (
           <div className="section-block">
-            <h3>Which days work?</h3>
+            <h3>{tour ? 'Which days work?' : 'Which days could you do this?'}</h3>
             <DayAvailabilityGrid
-              windowStart={ride.date}
-              windowEnd={ride.endDate}
-              tourDays={ride.tourDays}
+              windowStart={earliest}
+              windowEnd={latest}
+              tourDays={ride.tourDays || 1}
               value={pickerSlots}
               onChange={onSlotsChange}
             />
           </div>
         )}
 
-        {/* organizer heatmaps */}
-        {showTimePicker && isProposer && (going.length + maybe.length > 0) && (
+        {showFlexPicker && (
+          <div className="section-block">
+            <h3>Which days and times work?</h3>
+            <FlexibleWindowGrid
+              earliestDate={earliest}
+              latestDate={latest}
+              windowStart={ride.windowStart}
+              windowEnd={ride.windowEnd}
+              durationMin={ride.durationMin}
+              value={pickerSlots}
+              onChange={onSlotsChange}
+            />
+          </div>
+        )}
+
+        {showOrgSlotHeat && (
           <div className="section-block">
             <h3>Group availability</h3>
             <Heatmap ride={ride} />
           </div>
         )}
-        {showDayPicker && isProposer && (going.length + maybe.length > 0) && (
+        {showOrgDayHeat && (
           <div className="section-block">
             <h3>Group availability</h3>
             <DayHeatmap ride={ride} />
           </div>
         )}
 
-        {/* attendees list */}
         <div className="section-block">
           <h3>Who's cranking ({going.length + maybe.length})</h3>
           <div className="attendees">
@@ -590,26 +692,18 @@ const DetailScreen = ({ ride, currentUser, onBack, onEdit, onLockIn, onUnlock, o
           </div>
         </div>
 
-        {/* details */}
         <div className="section-block">
           <h3>Details</h3>
           <div className="kv-list">
             <div className="kv"><span className="k">When</span>
-              <span className="v" style={{ textAlign: 'right' }}>
-                {multi
-                  ? (ride.status === 'locked'
-                      ? fmtLocked()
-                      : `${ride.tourDays}-day · search ${shortDate(ride.date)}–${shortDate(ride.endDate)}`)
-                  : `${longDate(ride.date)}${ride.status === 'locked' ? ` · ${fmtTime(ride.lockedStart)}` : ride.mode === 'window' ? ` · ${fmtTime(ride.windowStart)}–${fmtTime(ride.windowEnd)}` : ' · all day'}`}
-              </span></div>
+              <span className="v" style={{ textAlign: 'right' }}>{summarizeWhen(ride)}</span></div>
             {(ride.distanceMi || lead?.distanceMi) && <div className="kv"><span className="k">Distance</span><span className="v">{ride.distanceMi || lead.distanceMi} mi · est.</span></div>}
-            {!multi && ride.durationMin && <div className="kv"><span className="k">Duration</span><span className="v">{fmtDuration(ride.durationMin)}</span></div>}
-            {ride.startAddress && <div className="kv"><span className="k">Meat address</span><span className="v" style={{ textAlign: 'right' }}>{ride.startAddress}</span></div>}
+            {!tour && ride.durationMin && <div className="kv"><span className="k">Duration</span><span className="v">{fmtDuration(ride.durationMin)}</span></div>}
+            {ride.startAddress && <div className="kv"><span className="k">Meet address</span><span className="v" style={{ textAlign: 'right' }}>{ride.startAddress}</span></div>}
             <div className="kv"><span className="k">Proposed</span><span className="v">{ride.proposedBy}</span></div>
           </div>
         </div>
 
-        {/* danger zone — only proposer */}
         {isProposer && (
           <div className="section-block" style={{ paddingBottom: 24 }}>
             {!confirmDelete ? (
@@ -631,4 +725,4 @@ const DetailScreen = ({ ride, currentUser, onBack, onEdit, onLockIn, onUnlock, o
   );
 };
 
-Object.assign(window, { DetailScreen, AvailabilityGrid, Heatmap, RouteOptions, DayAvailabilityGrid, DayHeatmap });
+Object.assign(window, { DetailScreen, AvailabilityGrid, Heatmap, RouteOptions, DayAvailabilityGrid, DayHeatmap, FlexibleWindowGrid });
