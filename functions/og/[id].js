@@ -38,7 +38,7 @@ const HAIR = '#DCD2BD';
 
 function renderOg(ride) {
   const title = ride?.title || 'Crank';
-  const sub   = ride ? buildSub(ride) : 'Loosely Affiliated Cyclists';
+  const sub   = ride ? buildSub(ride) : 'Bikey Boys';
   const meta  = ride ? buildMeta(ride) : '';
   const status = ride?.status === 'locked' ? 'LOCKED' : ride ? 'OPEN' : '';
 
@@ -66,7 +66,7 @@ function renderOg(ride) {
   <g transform="translate(70 110)">
     <circle cx="22" cy="-8" r="24" fill="${ACCENT}"/>
     <text x="22" y="-1" font-family="Georgia, 'Times New Roman', serif" font-size="22" fill="${PAPER}" text-anchor="middle" font-style="italic">c</text>
-    <text x="62" y="2" font-family="Georgia, 'Times New Roman', serif" font-size="22" font-weight="700" letter-spacing="4" fill="${INK2}">CRANK · LOOSELY AFFILIATED CYCLISTS</text>
+    <text x="62" y="2" font-family="Georgia, 'Times New Roman', serif" font-size="22" font-weight="700" letter-spacing="4" fill="${INK2}">CRANK · BIKEY BOYS</text>
   </g>
 
   ${status ? `

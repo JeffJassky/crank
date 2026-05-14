@@ -19,7 +19,7 @@ const UsernameGate = ({ onEnter }) => {
     <div className="gate">
       <div className="gate-mark">
         <span className="badge"><Icon name="bike" size={14} /></span>
-        <span>Loosely Affiliated Cyclists</span>
+        <span>Bikey Boys</span>
       </div>
       <h1>
         Show up.<br />
